@@ -1,0 +1,76 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Parent Stack of Nested ones
+
+Parameters:
+  VPCId:
+    Type: AWS::EC2::VPC::Id
+  VPCCidr:
+    Type: String
+    Default: 10.0.0.0/16
+  PublicSubnets:
+    Type: List<AWS::EC2::Subnet::Id>
+  PrivateSubnets:
+    Type: List<AWS::EC2::Subnet::Id>
+  KeyName: 
+    Description: Name of an existing EC2 key pair for SSH access to the EC2 instance
+    Type: "AWS::EC2::KeyPair::KeyName"
+    Default: "aamirKP1"
+  Ec2AmiId:
+    Type: String
+    Default: "ami-02e136e904f3da870"
+
+Resources:
+  EfsStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: "https://cloudinglabv1.s3.amazonaws.com/efs.yml"
+      TimeoutInMinutes: 30
+      Parameters: 
+        PrivateSubnetId1: !Select [ 0, !Ref PrivateSubnets ]
+        PrivateSubnetId2: !Select [ 1, !Ref PrivateSubnets ]
+        VPCId: !Ref VPCId
+        VPCCidr: !Ref VPCCidr
+
+  LoadBalancerStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: "https://cloudinglabv1.s3.amazonaws.com/alb.yml"
+      TimeoutInMinutes: 30
+      Parameters: 
+        VPCId: !Ref VPCId
+        PublicSubnets: !Join [",", !Ref PublicSubnets]
+
+  AutoScallingStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: 
+      - RDS
+      - LoadBalancerStack
+      - EfsStack
+    Properties: 
+      TemplateURL: "https://cloudinglabv1.s3.amazonaws.com/asg.yml"
+      TimeoutInMinutes: 30
+      Parameters: 
+        Ec2AmiId: !Ref Ec2AmiId
+        KeyName: !Ref KeyName
+        PrivateSubnets: !Join [",", !Ref PrivateSubnets]
+        VPCId: !Ref VPCId
+        VPCCidr: !Ref VPCCidr
+
+  RDS:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: "https://cloudinglabv1.s3.amazonaws.com/rds.yml"
+      TimeoutInMinutes: 30
+      Parameters:
+        VPCId: !Ref VPCId
+        VPCCidr: !Ref VPCCidr
+        PrivateSubnets: !Join [",", !Ref PrivateSubnets]
+
+          
+  cloudFront:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: 
+      - LoadBalancerStack
+    Properties:
+      TemplateURL: "https://cloudinglabv1.s3.amazonaws.com/cloudfront.yml"
+      TimeoutInMinutes: 30

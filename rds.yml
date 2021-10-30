@@ -1,0 +1,133 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: AWS RDS Clutser, Instance and Subnet Group for dev environment.
+Parameters:
+  Environment:
+    Type: String
+    Default: develop
+  Engine:
+    Type: String
+    Default: aurora-mysql
+    AllowedValues:
+      - aurora-mysql
+  EngineVersion:
+    Type: String
+    Default: 5.7.mysql_aurora.2.09.1
+  InstanceType:
+    Type: String
+    Default: db.t3.medium
+  AllocatedStorage:
+    Type: Number
+    Default: 20
+  PubliclyAccessible:
+    Type: String
+    Default: true
+  StorageType:
+    Type: String
+    Default: gp2
+  AutoMinorVersionUpgrade:
+    Type: String
+    Default: false
+  DatabaseName:
+    Type: String
+    Default: wordpress
+  MasterUserName:
+    Type: String
+    Default: admin
+  PrivateSubnets:
+    Type: String
+  VPCCidr:
+    Type: String
+  VPCId:
+    Type: String
+    
+
+Resources:
+  SubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Subnet group for rds
+      SubnetIds: !Split [ "," , !Ref "PrivateSubnets" ]
+      Tags:
+        - Key: Env
+          Value: !Ref Environment
+
+  Cluster:
+    DependsOn:
+      - SecurityGroup
+    Type: AWS::RDS::DBCluster
+    Properties:
+      DBClusterIdentifier: !Sub "wp-${Environment}-cluster" 
+      Engine: !Ref Engine
+      DBSubnetGroupName: !Ref SubnetGroup
+      EngineVersion: !Ref EngineVersion
+      DatabaseName: !Ref DatabaseName
+      MasterUsername: !Ref MasterUserName
+      MasterUserPassword: '{{resolve:ssm-secure:RDS_PASSWORD:1}}'
+      StorageEncrypted: false
+      PreferredBackupWindow: "06:59-07:29"
+      PreferredMaintenanceWindow: "sun:00:01-sun:00:31"
+      BackupRetentionPeriod: 7
+      VpcSecurityGroupIds: 
+        - !GetAtt SecurityGroup.GroupId
+      Tags:
+        - Key: Env
+          Value: !Ref Environment
+
+  Database1:
+    Type: AWS::RDS::DBInstance
+    DeletionPolicy: Delete
+    DependsOn:
+      - Cluster
+      - SubnetGroup
+    Properties:
+      DBClusterIdentifier: !Ref Cluster
+      AutoMinorVersionUpgrade: !Ref AutoMinorVersionUpgrade
+      DBInstanceClass: !Ref InstanceType
+      DBInstanceIdentifier: !Sub "wp-${Environment}"
+      DBSubnetGroupName: !Ref SubnetGroup
+      Engine: !Ref Engine
+      PubliclyAccessible: !Ref PubliclyAccessible
+      PreferredMaintenanceWindow: "fri:11:02-fri:11:32"
+      Tags:
+        - Key: Env
+          Value: !Ref Environment
+  
+
+  SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for rds instance
+      VpcId: !Ref VPCId
+      SecurityGroupIngress:
+        - FromPort: 3306
+          IpProtocol: tcp
+          ToPort: 3306
+          CidrIp: !Ref VPCCidr
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          CidrIp: "0.0.0.0/0"
+      SecurityGroupEgress:
+        - CidrIp: 0.0.0.0/0
+          FromPort: -1
+          IpProtocol: -1
+          ToPort: -1
+      Tags:
+        - Key: Env
+          Value: !Ref Environment
+  DBHost:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: DB_HOST
+      Type: String
+      Value: !GetAtt Cluster.Endpoint.Address
+
+Outputs:
+  DbHost:
+    Value: !GetAtt Cluster.Endpoint.Address
+    Export:
+      Name: !Sub "${Environment}-DBHOST"
+  DbInstance:
+    Value: !Ref Database1
+    Export:
+      Name: !Sub "${Environment}-DbInstance"

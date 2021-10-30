@@ -1,0 +1,70 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Parameters:
+  Environment:
+    Type: String
+    Default: develop
+Resources:
+  WebACL: 
+    Type: "AWS::WAFv2::WebACL"
+    Properties: 
+      Name: WebACLLAB
+      Scope: CLOUDFRONT
+      DefaultAction: 
+        Allow: {}
+      VisibilityConfig:
+        CloudWatchMetricsEnabled: true
+        MetricName: WebACLMetric
+        SampledRequestsEnabled: true
+      Rules: 
+        - Name: GeoRestriction
+          Priority: 0
+          Action: 
+            Block: {}
+          VisibilityConfig:
+            SampledRequestsEnabled: true
+            CloudWatchMetricsEnabled: true
+            MetricName: BlockGeo
+          Statement:
+            GeoMatchStatement:
+              CountryCodes: 
+                  - US
+         
+  Distribution:
+    Type: 'AWS::CloudFront::Distribution'
+    Properties:
+      DistributionConfig:
+        WebACLId: !GetAtt WebACL.Arn
+        Origins:
+        - DomainName:
+            Fn::ImportValue:
+              Fn::Sub: "${Environment}-LoadBalacnerDNS" 
+          Id: AlbCustomOrigin
+          CustomOriginConfig:
+            HTTPPort: '80'
+            HTTPSPort: '443'
+            OriginProtocolPolicy: http-only
+        Enabled: 'true'
+        Comment: cloudfront on top of alb
+        DefaultCacheBehavior:
+          TargetOriginId: AlbCustomOrigin
+          SmoothStreaming: 'false'
+          ForwardedValues:
+            QueryString: 'false'
+            Cookies:
+              Forward: all
+          ViewerProtocolPolicy: allow-all
+        CustomErrorResponses:
+        - ErrorCode: '404'
+          ResponsePagePath: "/error-pages/404.html"
+          ResponseCode: '200'
+          ErrorCachingMinTTL: '30'
+        PriceClass: PriceClass_200
+        ViewerCertificate:
+          CloudFrontDefaultCertificate: 'true'
+
+Outputs:
+  Domain:
+    Description: doamin of cloudfront
+    Value: !GetAtt Distribution.DomainName
+    Export:
+      Name: !Sub "${Environment}-DomainName"   
